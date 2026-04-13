@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hybrid PDA & Phone Scanner</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            text-align: center;
+            background-color: #121212;
+            color: #e0e0e0;
+        }
+        .container {
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #1e1e1e;
+            border-radius: 8px;
+        }
+        /* Camera Container */
+        #reader {
+            width: 100%;
+            max-width: 400px;
+            margin: 20px auto;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            display: none; /* Hidden until camera starts */
+        }
+        #result-container {
+            margin-top: 20px;
+            text-align: left;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            border: 1px solid #444;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #333;
+            color: #fff;
+        }
+        button {
+            padding: 12px 20px;
+            margin: 5px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover { background-color: #0056b3; }
+        #clear-btn { background-color: #dc3545; }
+        #camera-toggle-btn { background-color: #28a745; }
+        
+        /* Hidden input for physical PDA scanner */
+        #barcode-input {
+            position: absolute;
+            opacity: 0;
+            top: -9999px;
+        }
+        .status-message {
+            font-weight: bold;
+            font-size: 1.2em;
+            margin-bottom: 20px;
+            color: #ffca28;
+        }
+    </style>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Smart Scanner</h1>
+        <p>Works with PDA hardware buttons OR Phone Camera.</p>
+        
+        <p class="status-message" id="status-message">Ready to scan QR...</p>
+
+        <button id="camera-toggle-btn">Start Phone Camera</button>
+        <div id="reader"></div>
+
+        <input type="text" id="barcode-input" autofocus>
+
+        <div id="result-container">
+            <button id="export-btn">Export Excel</button>
+            <button id="clear-btn">Clear All</button>
+            <table>
+                <thead>
+                    <tr>
+                        <th>QR Code</th>
+                        <th>Code 128</th>
+                        <th>Timestamp</th>
+                    </tr>
+                </thead>
+                <tbody id="data-table-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const dataKey = 'scannedData';
+        let scannedData = JSON.parse(localStorage.getItem(dataKey)) || [];
+        const barcodeInput = document.getElementById('barcode-input');
+        const statusMessage = document.getElementById('status-message');
+        const readerElement = document.getElementById('reader');
+        const cameraBtn = document.getElementById('camera-toggle-btn');
+        
+        let waitingFor = 'qr';
+        let html5QrCode = null;
+
+        // --- CORE LOGIC ---
+
+        function processBarcode(value) {
+            if (!value || value.trim() === '') return;
+
+            const timestamp = new Date().toLocaleString();
+            const trimmedValue = value.trim();
+
+            if (waitingFor === 'qr') {
+                scannedData.push({ qrCode: trimmedValue, code128: null, timestamp: timestamp });
+                waitingFor = 'code128';
+                statusMessage.textContent = "NOW: Scan Code 128...";
+                statusMessage.style.color = "#42a5f5";
+            } else {
+                const lastRow = scannedData[scannedData.length - 1];
+                lastRow.code128 = trimmedValue;
+                lastRow.timestamp = timestamp;
+                waitingFor = 'qr';
+                statusMessage.textContent = "NEXT: Scan QR Code...";
+                statusMessage.style.color = "#ffca28";
+            }
+
+            saveAndRender();
+            barcodeInput.value = '';
+        }
+
+        function saveAndRender() {
+            localStorage.setItem(dataKey, JSON.stringify(scannedData));
+            const tableBody = document.getElementById('data-table-body');
+            tableBody.innerHTML = scannedData.map(item => `
+                <tr>
+                    <td>${item.qrCode || ''}</td>
+                    <td>${item.code128 || ''}</td>
+                    <td>${item.timestamp}</td>
+                </tr>
+            `).join('');
+        }
+
+        // --- CAMERA SCANNING (Phone Compatibility) ---
+
+        cameraBtn.addEventListener('click', () => {
+            if (!html5QrCode) {
+                html5QrCode = new Html5Qrcode("reader");
+                readerElement.style.display = 'block';
+                cameraBtn.textContent = "Stop Camera";
+                
+                const config = { fps: 10, qrbox: { width: 250, height: 150 } };
+                
+                html5QrCode.start(
+                    { facingMode: "environment" }, 
+                    config,
+                    (decodedText) => {
+                        // Success: Process the scan and briefly pause to prevent double scans
+                        processBarcode(decodedText);
+                    }
+                ).catch(err => alert("Camera Error: " + err));
+            } else {
+                html5QrCode.stop().then(() => {
+                    html5QrCode = null;
+                    readerElement.style.display = 'none';
+                    cameraBtn.textContent = "Start Phone Camera";
+                });
+            }
+        });
+
+        // --- PHYSICAL PDA SCANNER LOGIC ---
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                processBarcode(barcodeInput.value);
+            }
+        });
+
+        // Keep focus on hidden input for PDA scanner
+        const keepFocus = () => { if(!html5QrCode) barcodeInput.focus(); };
+        document.addEventListener('click', keepFocus);
+        setInterval(keepFocus, 1000);
+
+        // --- UTILS ---
+
+        document.getElementById('export-btn').addEventListener('click', () => {
+            if (scannedData.length === 0) return alert("No data!");
+            const ws = XLSX.utils.json_to_sheet(scannedData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "ScannedData");
+            XLSX.writeFile(wb, `Scan_Export_${new Date().toISOString().slice(0,10)}.xlsx`);
+        });
+
+        document.getElementById('clear-btn').addEventListener('click', () => {
+            if (confirm("Clear data?")) {
+                scannedData = [];
+                waitingFor = 'qr';
+                statusMessage.textContent = "Ready to scan QR...";
+                saveAndRender();
+            }
+        });
+
+        saveAndRender();
+    </script>
+</body>
+</html>
