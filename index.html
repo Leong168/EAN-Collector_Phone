@@ -3,220 +3,237 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hybrid PDA & Phone Scanner</title>
+    <title>Warehouse Item Capture</title>
     <style>
         body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-            text-align: center;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
             background-color: #121212;
             color: #e0e0e0;
+            text-align: center;
         }
         .container {
-            width: 100%;
-            max-width: 800px;
+            max-width: 600px;
             margin: 0 auto;
-            padding: 20px;
             background-color: #1e1e1e;
-            border-radius: 8px;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
         }
-        /* Camera Container */
+        /* Visual indicator for current step */
+        .step-indicator {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 20px;
+        }
+        .step {
+            padding: 10px 20px;
+            border-radius: 20px;
+            background: #333;
+            font-weight: bold;
+            transition: 0.3s;
+            flex: 1;
+            margin: 0 5px;
+        }
+        .step.active {
+            background: #007bff;
+            color: white;
+            box-shadow: 0 0 10px #007bff;
+        }
+
         #reader {
             width: 100%;
-            max-width: 400px;
-            margin: 20px auto;
-            background: #000;
             border-radius: 8px;
-            overflow: hidden;
-            display: none; /* Hidden until camera starts */
+            margin: 15px 0;
+            display: none;
+            background: #000;
         }
-        #result-container {
-            margin-top: 20px;
-            text-align: left;
+
+        button {
+            padding: 12px 18px;
+            margin: 8px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
         }
+        .btn-primary { background-color: #007bff; color: white; }
+        .btn-success { background-color: #28a745; color: white; }
+        .btn-danger { background-color: #dc3545; color: white; }
+        .btn-warning { background-color: #ffc107; color: #000; }
+
         table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 10px;
+            margin-top: 20px;
+            font-size: 13px;
         }
         th, td {
             border: 1px solid #444;
-            padding: 8px;
+            padding: 10px;
             text-align: left;
         }
-        th {
-            background-color: #333;
-            color: #fff;
-        }
-        button {
-            padding: 12px 20px;
-            margin: 5px;
-            background-color: #007bff;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 16px;
-        }
-        button:hover { background-color: #0056b3; }
-        #clear-btn { background-color: #dc3545; }
-        #camera-toggle-btn { background-color: #28a745; }
+        th { background-color: #2c2c2c; }
         
-        /* Hidden input for physical PDA scanner */
-        #barcode-input {
-            position: absolute;
-            opacity: 0;
-            top: -9999px;
-        }
-        .status-message {
-            font-weight: bold;
-            font-size: 1.2em;
-            margin-bottom: 20px;
-            color: #ffca28;
-        }
+        #barcode-input { position: absolute; opacity: 0; top: -100px; }
     </style>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
 </head>
 <body>
 
-    <div class="container">
-        <h1>Smart Scanner</h1>
-        <p>Works with PDA hardware buttons OR Phone Camera.</p>
-        
-        <p class="status-message" id="status-message">Ready to scan QR...</p>
-
-        <button id="camera-toggle-btn">Start Phone Camera</button>
-        <div id="reader"></div>
-
-        <input type="text" id="barcode-input" autofocus>
-
-        <div id="result-container">
-            <button id="export-btn">Export Excel</button>
-            <button id="clear-btn">Clear All</button>
-            <table>
-                <thead>
-                    <tr>
-                        <th>QR Code</th>
-                        <th>Code 128</th>
-                        <th>Timestamp</th>
-                    </tr>
-                </thead>
-                <tbody id="data-table-body"></tbody>
-            </table>
-        </div>
+<div class="container">
+    <h2>Item Batch Capture</h2>
+    
+    <div class="step-indicator">
+        <div id="step-qr" class="step active">1. SCAN QR</div>
+        <div id="step-ean" class="step">2. SCAN EAN</div>
     </div>
 
-    <script>
-        const dataKey = 'scannedData';
-        let scannedData = JSON.parse(localStorage.getItem(dataKey)) || [];
-        const barcodeInput = document.getElementById('barcode-input');
-        const statusMessage = document.getElementById('status-message');
-        const readerElement = document.getElementById('reader');
-        const cameraBtn = document.getElementById('camera-toggle-btn');
-        
-        let waitingFor = 'qr';
-        let html5QrCode = null;
+    <button id="camera-btn" class="btn-success">Open Phone Camera</button>
+    <button id="reset-seq-btn" class="btn-warning">Reset Sequence</button>
+    
+    <div id="reader"></div>
 
-        // --- CORE LOGIC ---
+    <input type="text" id="barcode-input" autofocus>
 
-        function processBarcode(value) {
-            if (!value || value.trim() === '') return;
+    <div style="margin-top: 20px;">
+        <button id="export-btn" class="btn-primary">Export to Excel</button>
+        <button id="clear-btn" class="btn-danger">Clear All Data</button>
+    </div>
 
-            const timestamp = new Date().toLocaleString();
-            const trimmedValue = value.trim();
+    <table>
+        <thead>
+            <tr>
+                <th>Item (QR)</th>
+                <th>Serial/EAN</th>
+                <th>Time</th>
+            </tr>
+        </thead>
+        <tbody id="data-table"></tbody>
+    </table>
+</div>
 
-            if (waitingFor === 'qr') {
-                scannedData.push({ qrCode: trimmedValue, code128: null, timestamp: timestamp });
-                waitingFor = 'code128';
-                statusMessage.textContent = "NOW: Scan Code 128...";
-                statusMessage.style.color = "#42a5f5";
-            } else {
-                const lastRow = scannedData[scannedData.length - 1];
-                lastRow.code128 = trimmedValue;
-                lastRow.timestamp = timestamp;
-                waitingFor = 'qr';
-                statusMessage.textContent = "NEXT: Scan QR Code...";
-                statusMessage.style.color = "#ffca28";
-            }
+<script>
+    const STORAGE_KEY = 'warehouse_scan_data';
+    let scans = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+    let state = 'WAITING_FOR_QR'; // WAITING_FOR_QR or WAITING_FOR_EAN
+    
+    const qrStepEl = document.getElementById('step-qr');
+    const eanStepEl = document.getElementById('step-ean');
+    const inputEl = document.getElementById('barcode-input');
+    const tableEl = document.getElementById('data-table');
+    const readerEl = document.getElementById('reader');
+    
+    let html5QrCode = null;
 
-            saveAndRender();
-            barcodeInput.value = '';
+    function updateUI() {
+        // Update visual steps
+        if (state === 'WAITING_FOR_QR') {
+            qrStepEl.classList.add('active');
+            eanStepEl.classList.remove('active');
+        } else {
+            qrStepEl.classList.remove('active');
+            eanStepEl.classList.add('active');
         }
 
-        function saveAndRender() {
-            localStorage.setItem(dataKey, JSON.stringify(scannedData));
-            const tableBody = document.getElementById('data-table-body');
-            tableBody.innerHTML = scannedData.map(item => `
-                <tr>
-                    <td>${item.qrCode || ''}</td>
-                    <td>${item.code128 || ''}</td>
-                    <td>${item.timestamp}</td>
-                </tr>
-            `).join('');
+        // Render Table
+        tableEl.innerHTML = scans.map(s => `
+            <tr>
+                <td>${s.qr}</td>
+                <td>${s.ean || '<span style="color:orange">Pending...</span>'}</td>
+                <td>${s.time}</td>
+            </tr>
+        `).reverse().join(''); // Show newest first
+    }
+
+    function handleScan(value) {
+        if (!value) return;
+        const now = new Date().toLocaleTimeString();
+
+        if (state === 'WAITING_FOR_QR') {
+            // Start a new entry
+            scans.push({ qr: value, ean: null, time: now });
+            state = 'WAITING_FOR_EAN';
+        } else {
+            // Fill the EAN for the last entry
+            const lastEntry = scans[scans.length - 1];
+            lastEntry.ean = value;
+            lastEntry.time = now;
+            state = 'WAITING_FOR_QR';
         }
 
-        // --- CAMERA SCANNING (Phone Compatibility) ---
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(scans));
+        updateUI();
+        inputEl.value = '';
+    }
 
-        cameraBtn.addEventListener('click', () => {
-            if (!html5QrCode) {
-                html5QrCode = new Html5Qrcode("reader");
-                readerElement.style.display = 'block';
-                cameraBtn.textContent = "Stop Camera";
-                
-                const config = { fps: 10, qrbox: { width: 250, height: 150 } };
-                
-                html5QrCode.start(
-                    { facingMode: "environment" }, 
-                    config,
-                    (decodedText) => {
-                        // Success: Process the scan and briefly pause to prevent double scans
-                        processBarcode(decodedText);
-                    }
-                ).catch(err => alert("Camera Error: " + err));
-            } else {
-                html5QrCode.stop().then(() => {
-                    html5QrCode = null;
-                    readerElement.style.display = 'none';
-                    cameraBtn.textContent = "Start Phone Camera";
-                });
-            }
-        });
+    // --- PDA Scanner Event ---
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            handleScan(inputEl.value);
+        }
+    });
 
-        // --- PHYSICAL PDA SCANNER LOGIC ---
+    // --- Phone Camera Setup ---
+    document.getElementById('camera-btn').addEventListener('click', function() {
+        if (!html5QrCode) {
+            html5QrCode = new Html5Qrcode("reader");
+            readerEl.style.display = 'block';
+            this.textContent = "Close Camera";
+            
+            html5QrCode.start(
+                { facingMode: "environment" },
+                { fps: 10, qrbox: 250 },
+                (text) => {
+                    handleScan(text);
+                    // Add a tiny delay to prevent reading the same code twice
+                    html5QrCode.pause();
+                    setTimeout(() => html5QrCode.resume(), 1500);
+                }
+            );
+        } else {
+            html5QrCode.stop().then(() => {
+                html5QrCode = null;
+                readerEl.style.display = 'none';
+                this.textContent = "Open Phone Camera";
+            });
+        }
+    });
 
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                processBarcode(barcodeInput.value);
-            }
-        });
+    // --- Controls ---
+    document.getElementById('reset-seq-btn').addEventListener('click', () => {
+        state = 'WAITING_FOR_QR';
+        // Remove the incomplete entry if it exists
+        if (scans.length > 0 && !scans[scans.length - 1].ean) {
+            scans.pop();
+        }
+        updateUI();
+    });
 
-        // Keep focus on hidden input for PDA scanner
-        const keepFocus = () => { if(!html5QrCode) barcodeInput.focus(); };
-        document.addEventListener('click', keepFocus);
-        setInterval(keepFocus, 1000);
+    document.getElementById('export-btn').addEventListener('click', () => {
+        if (scans.length === 0) return;
+        const ws = XLSX.utils.json_to_sheet(scans);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Inventory");
+        XLSX.writeFile(wb, `ScanLog_${new Date().toISOString().split('T')[0]}.xlsx`);
+    });
 
-        // --- UTILS ---
+    document.getElementById('clear-btn').addEventListener('click', () => {
+        if (confirm("Delete everything?")) {
+            scans = [];
+            state = 'WAITING_FOR_QR';
+            localStorage.removeItem(STORAGE_KEY);
+            updateUI();
+        }
+    });
 
-        document.getElementById('export-btn').addEventListener('click', () => {
-            if (scannedData.length === 0) return alert("No data!");
-            const ws = XLSX.utils.json_to_sheet(scannedData);
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, "ScannedData");
-            XLSX.writeFile(wb, `Scan_Export_${new Date().toISOString().slice(0,10)}.xlsx`);
-        });
+    // Auto-focus logic for PDA
+    setInterval(() => { if (!html5QrCode) inputEl.focus(); }, 1000);
+    updateUI();
 
-        document.getElementById('clear-btn').addEventListener('click', () => {
-            if (confirm("Clear data?")) {
-                scannedData = [];
-                waitingFor = 'qr';
-                statusMessage.textContent = "Ready to scan QR...";
-                saveAndRender();
-            }
-        });
-
-        saveAndRender();
-    </script>
+</script>
 </body>
 </html>
